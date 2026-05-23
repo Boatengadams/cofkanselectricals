@@ -104,4 +104,12 @@ export const appleProvider = DEMO_MODE
   ? ({} as OAuthProvider)
   : (() => { const p = new OAuthProvider('apple.com'); p.addScope('email'); p.addScope('name'); return p; })();
 
+export const microsoftProvider = DEMO_MODE
+  ? ({} as OAuthProvider)
+  : (() => {
+      const p = new OAuthProvider('microsoft.com');
+      p.setCustomParameters({ prompt: 'select_account' });
+      return p;
+    })();
+
 export default app;

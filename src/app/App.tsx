@@ -84,7 +84,7 @@ function AppContent() {
     if (!staff && currentView === 'dashboard') setCurrentView('user-dashboard');
   }, [user?.role, currentView, dashboardTab]);
 
-  const handleSignIn = async (provider: 'google' | 'apple') => {
+  const handleSignIn = async (provider: 'google' | 'apple' | 'microsoft') => {
     try {
       await signInWithProvider(provider);
       setShowAuthModal(false);
@@ -1167,6 +1167,7 @@ function AppContent() {
         onEmailSignUp={handleEmailSignUp}
         onEmailSignIn={handleEmailSignIn}
         onPasswordReset={handlePasswordReset}
+        initialMode={(() => { try { return localStorage.getItem('cofkans_known_device') ? 'signin' : 'signup'; } catch { return 'signup'; } })()}
       />
 
       {/* Shopping Cart Drawer */}

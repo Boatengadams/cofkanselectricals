@@ -13,7 +13,7 @@ import {
   User as FirebaseUser,
   AuthError,
 } from 'firebase/auth';
-import { auth, googleProvider, appleProvider, db } from '../../lib/firebase';
+import { auth, googleProvider, appleProvider, microsoftProvider, db } from '../../lib/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { UserService } from '../../lib/firestore-service';
 import { useCartStore } from '../../stores/cart-store';
@@ -44,7 +44,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isEmailVerified: boolean;
-  signInWithProvider: (provider: 'google' | 'apple') => Promise<void>; // OAuth always creates customers
+  signInWithProvider: (provider: 'google' | 'apple' | 'microsoft') => Promise<void>; // OAuth always creates customers
   signUpWithEmail: (email: string, password: string, displayName: string, role?: UserRole) => Promise<void>; // Staff only
   signInWithEmail: (email: string, password: string) => Promise<void>; // Staff only
   resetPassword: (email: string) => Promise<void>;
@@ -143,7 +143,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
    * Staff must use email/password with company domain
    */
   const signInWithProvider = async (
-    providerType: 'google' | 'apple'
+    providerType: 'google' | 'apple' | 'microsoft'
   ) => {
     setIsLoading(true);
     setError(null);
@@ -184,13 +184,10 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       let firestoreUser = await UserService.get(firebaseUser.uid);
 
       if (!firestoreUser) {
-        // Check if this is the super admin
+        // OAuth sign-ups are ALWAYS customers — no exceptions, even for super admin.
+        // Staff (including super admin) must use email/password with company email
+        // to access admin/technician/driver roles.
         const userEmail = firebaseUser.email || '';
-        const isSuper = isSuperAdmin(userEmail);
-
-        // OAuth sign-ups are ALWAYS customers UNLESS they're the super admin
-        // Staff must use email/password with company email
-        const role = isSuper ? 'admin' : 'customer';
 
         await UserService.create(firebaseUser.uid, {
           email: userEmail,
@@ -199,32 +196,15 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
           photoURL: firebaseUser.photoURL,
           provider: providerType,
           emailVerified: firebaseUser.emailVerified,
-          role,
-          isSuperAdmin: isSuper,
+          role: 'customer',
         });
 
-        if (isSuper) {
-          toast.success('Welcome, Super Admin! 👑');
-        } else {
-          toast.success('Welcome to Cofkans Electricals!');
-        }
+        toast.success('Welcome to Cofkans Electricals!');
       } else {
-        // Check if existing user should be super admin but isn't
-        const userEmail = firebaseUser.email || '';
-        const isSuper = isSuperAdmin(userEmail);
-
-        if (isSuper && !firestoreUser.isSuperAdmin) {
-          // Update existing user to super admin
-          await updateDoc(doc(db, 'users', firebaseUser.uid), {
-            role: 'admin',
-            isSuperAdmin: true,
-            updatedAt: serverTimestamp(),
-          });
-          toast.success('Welcome back, Super Admin! 👑');
-        } else {
-          toast.success(`Welcome back, ${firestoreUser.displayName}!`);
-        }
+        toast.success(`Welcome back, ${firestoreUser.displayName}!`);
       }
+
+      try { localStorage.setItem('cofkans_known_device', '1'); } catch { /* ignore */ }
 
       // OAuth providers auto-verify email, no need to send verification
 
@@ -355,6 +335,8 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
 
         toast.success(`Welcome back, ${firestoreUser.displayName}!`);
       }
+
+      try { localStorage.setItem('cofkans_known_device', '1'); } catch { /* ignore */ }
 
       // Remind about email verification if not verified
       if (!firebaseUser.emailVerified) {
@@ -540,20 +522,24 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
 
 // ===== HELPER FUNCTIONS =====
 
-function getProvider(providerType: 'google' | 'apple') {
+function getProvider(providerType: 'google' | 'apple' | 'microsoft') {
   switch (providerType) {
     case 'google':
       return googleProvider;
     case 'apple':
       return appleProvider;
+    case 'microsoft':
+      return microsoftProvider;
     default:
       throw new Error(`Unknown provider: ${providerType}`);
   }
 }
 
-function getProviderFromFirebase(providerId: string | undefined): 'google' | 'apple' | 'email' {
+function getProviderFromFirebase(providerId: string | undefined): 'google' | 'apple' | 'microsoft' | 'email' | 'phone' {
   if (providerId?.includes('google')) return 'google';
   if (providerId?.includes('apple')) return 'apple';
+  if (providerId?.includes('microsoft')) return 'microsoft';
+  if (providerId?.includes('phone')) return 'phone';
   return 'email';
 }
 

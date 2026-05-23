@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { collection, query, getDocs, orderBy, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { promoteUserRole, demoteUser, isSuperAdmin } from '@/lib/admin-service';
+import { createWorkerAccount } from '@/lib/create-worker';
 import { useFirebaseAuth } from '../../contexts/FirebaseAuthContext';
 import { sanitizeInput } from '@/lib/security-service';
 import toast from 'react-hot-toast';
@@ -15,7 +16,8 @@ import {
   Crown,
   AlertCircle,
   CheckCircle,
-  XCircle
+  XCircle,
+  UserPlus,
 } from 'lucide-react';
 import type { UserRole } from '../../types';
 import type { FirestoreUser } from '@/lib/firestore-schema';
@@ -45,6 +47,11 @@ export function UserManagementPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState<UserRole | 'all'>('all');
   const [promotingUserId, setPromotingUserId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newRole, setNewRole] = useState<'admin' | 'technician' | 'driver'>('technician');
+  const [creating, setCreating] = useState(false);
 
   const isCurrentUserSuperAdmin = isSuperAdmin(currentUser?.email || '');
 
@@ -138,6 +145,31 @@ export function UserManagementPanel() {
     }
   };
 
+  const handleCreateWorker = async () => {
+    if (!currentUser?.id) return;
+    setCreating(true);
+    try {
+      const res = await createWorkerAccount({
+        creatorUserId: currentUser.id,
+        username: newUsername,
+        displayName: newDisplayName,
+        role: newRole,
+      });
+      if (res.success) {
+        toast.success(`Worker created: ${res.email}. Password reset email sent.`);
+        setNewUsername('');
+        setNewDisplayName('');
+        setNewRole('technician');
+        setShowCreate(false);
+        await loadUsers();
+      } else {
+        toast.error(res.error || 'Failed to create worker.');
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
   // Sanitize search input
   const handleSearchChange = (value: string) => {
     const sanitized = sanitizeInput(value);
@@ -184,6 +216,69 @@ export function UserManagementPanel() {
             Promote and manage staff members (Super Admin only)
           </p>
         </div>
+      </div>
+
+      {/* Create Worker */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowCreate(s => !s)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity"
+        >
+          <UserPlus className="w-4 h-4" />
+          {showCreate ? 'Cancel' : 'Create Worker Account'}
+        </button>
+
+        {showCreate && (
+          <div className="mt-4 p-4 bg-background border-2 border-border rounded-xl space-y-3">
+            <div className="grid md:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Username</span>
+                <div className="mt-1 flex items-center bg-muted rounded-lg border-2 border-border focus-within:border-primary">
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={e => setNewUsername(e.target.value)}
+                    placeholder="kwame"
+                    className="flex-1 px-3 py-2 bg-transparent focus:outline-none font-semibold"
+                  />
+                  <span className="px-3 text-xs text-muted-foreground select-none">@cofkanselectricals.com</span>
+                </div>
+              </label>
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Display name</span>
+                <input
+                  type="text"
+                  value={newDisplayName}
+                  onChange={e => setNewDisplayName(e.target.value)}
+                  placeholder="Kwame Mensah"
+                  className="mt-1 w-full px-3 py-2 bg-muted rounded-lg border-2 border-border focus:border-primary focus:outline-none font-semibold"
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Role</span>
+                <select
+                  value={newRole}
+                  onChange={e => setNewRole(e.target.value as 'admin' | 'technician' | 'driver')}
+                  className="mt-1 w-full px-3 py-2 bg-muted rounded-lg border-2 border-border focus:border-primary focus:outline-none font-semibold"
+                >
+                  <option value="technician">Technician</option>
+                  <option value="driver">Driver</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+            </div>
+            <button
+              onClick={handleCreateWorker}
+              disabled={creating || !newUsername.trim() || !newDisplayName.trim()}
+              className="w-full py-3 rounded-xl bg-foreground text-background font-bold disabled:opacity-50"
+            >
+              {creating ? 'Creating…' : 'Create & send password setup email'}
+            </button>
+            <p className="text-xs text-muted-foreground">
+              The new worker will receive an email to set their own password before they can sign in.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
