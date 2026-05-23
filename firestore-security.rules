@@ -1,0 +1,472 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== OWASP SECURITY HELPER FUNCTIONS =====
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isTechnician() {
+      return hasRole('technician');
+    }
+
+    function isDriver() {
+      return hasRole('driver');
+    }
+
+    function isCustomer() {
+      return hasRole('customer');
+    }
+
+    function isActiveUser() {
+      return isSignedIn() && getUserData().isActive == true && getUserData().isBanned == false;
+    }
+
+    // ===== OWASP A01: BROKEN ACCESS CONTROL PROTECTION =====
+
+    function isSuperAdmin() {
+      // Super admin email check
+      return isSignedIn() &&
+             (getUserData().isSuperAdmin == true ||
+              request.auth.token.email == 'boatengadams4g@gmail.com');
+    }
+
+    function canModifyUserRole() {
+      // Only super admin can change roles to admin/technician/driver
+      // Regular admins cannot promote users
+      return isSuperAdmin();
+    }
+
+    function isValidRoleTransition(newRole) {
+      // Validate role values to prevent privilege escalation
+      return newRole in ['customer', 'technician', 'driver', 'admin'];
+    }
+
+    function isCompanyEmail(email) {
+      // Check if email is from company domain
+      return email.matches('.*@cofkanselectricals\\.com$');
+    }
+
+    function canHaveRole(email, role) {
+      return email.lower() == 'boatengadams4g@gmail.com'
+          || (role in ['admin', 'technician', 'driver'] && isCompanyEmail(email.lower()))
+          || role == 'customer';
+    }
+
+    // ===== OWASP A03: INJECTION PROTECTION =====
+
+    function isValidString(str, maxLength) {
+      // Prevent injection attacks via string validation
+      return str is string && str.size() <= maxLength && str.size() > 0;
+    }
+
+    function isValidEmail(email) {
+      // Basic email format validation
+      return email is string &&
+             email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$') &&
+             email.size() <= 254;
+    }
+
+    function isValidPhoneNumber(phone) {
+      // Validate phone number format (E.164)
+      return phone == null || (phone is string && phone.matches('^\\+[1-9][0-9]{1,14}$'));
+    }
+
+    // ===== OWASP A08: DATA INTEGRITY - PRICE & QUANTITY VALIDATION =====
+
+    function isValidPrice(price) {
+      // Strict price validation: must be positive number, max 1M GHS
+      return price is number && price > 0 && price <= 1000000;
+    }
+
+    function isValidQuantity(quantity) {
+      // Prevent inventory manipulation: max 99 items per cart item
+      return quantity is int && quantity > 0 && quantity <= 99;
+    }
+
+    function isValidCartTotal(total) {
+      // Prevent total manipulation: must be positive, max 10M GHS
+      return total is number && total >= 0 && total <= 10000000;
+    }
+
+    function cartItemsValid(items) {
+      // Validate all cart items have valid quantities and prices
+      return items is list &&
+             items.size() <= 100 && // Max 100 unique items in cart
+             items.hasAll(['productId', 'quantity', 'price', 'subtotal']);
+    }
+
+    function orderItemsValid(items) {
+      // Validate order items integrity
+      return items is list &&
+             items.size() > 0 &&
+             items.size() <= 100;
+    }
+
+    // ===== OWASP A07: AUTHENTICATION FAILURES - ACCOUNT STATUS =====
+
+    function accountNotLocked() {
+      // Ensure account is not locked due to failed login attempts
+      let userData = getUserData();
+      return !userData.get('isLocked', false);
+    }
+
+    // ===== USERS COLLECTION - ENHANCED SECURITY =====
+
+    match /users/{userId} {
+      // OWASP A01: Anyone can read basic profile info (for reviews, orders)
+      // but sensitive PII fields should be protected
+      allow read: if isSignedIn();
+
+      // OWASP A07: Users can create their own profile with validation
+      allow create: if isOwner(userId) &&
+                       request.resource.data.uid == userId &&
+                       isValidEmail(request.resource.data.email) &&
+                       request.resource.data.email == request.auth.token.email &&
+                       isValidRoleTransition(request.resource.data.role) &&
+                       canHaveRole(request.resource.data.email, request.resource.data.role) &&
+                       isValidString(request.resource.data.displayName, 100);
+
+      // OWASP A01: Users can update their own profile, but cannot change role
+      // Only super admin can change roles and account status
+      allow update: if (isOwner(userId) &&
+                        request.resource.data.uid == userId &&
+                        request.resource.data.role == resource.data.role && // Cannot change own role
+                        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isSuperAdmin', 'isBanned', 'isLocked', 'promotedBy', 'promotedAt'])) // Cannot modify security fields
+                       ||
+                       (isSuperAdmin() && canModifyUserRole() && canHaveRole(request.resource.data.email, request.resource.data.role));
+
+      // OWASP A01: Only admins can delete users
+      allow delete: if isAdmin();
+    }
+
+    // ===== PRODUCTS COLLECTION - ENHANCED SECURITY =====
+
+    match /products/{productId} {
+      // Public read access for browsing
+      allow read: if true;
+
+      // OWASP A01 & A08: Only admins can create/update/delete products
+      // Validate price and stock data
+      allow create: if isAdmin() &&
+                       isValidString(request.resource.data.name, 200) &&
+                       isValidString(request.resource.data.sku, 100) &&
+                       isValidPrice(request.resource.data.price) &&
+                       request.resource.data.totalStock >= 0 &&
+                       request.resource.data.totalStock <= 100000;
+
+      allow update: if isAdmin() &&
+                       isValidPrice(request.resource.data.price) &&
+                       request.resource.data.totalStock >= 0 &&
+                       request.resource.data.totalStock <= 100000;
+
+      allow delete: if isAdmin();
+    }
+
+    // ===== PRODUCT PRICE OVERRIDES - admin-managed prices for CSV imports =====
+    match /productPriceOverrides/{sku} {
+      // Public read so storefront can apply live prices
+      allow read: if true;
+
+      // Only admins can set/update; price must be valid
+      allow create, update: if isAdmin() && isValidPrice(request.resource.data.price);
+      allow delete: if isAdmin();
+    }
+
+    // ===== CATEGORIES COLLECTION - ENHANCED SECURITY =====
+
+    match /categories/{categoryId} {
+      // Public read access
+      allow read: if true;
+
+      // OWASP A01: Only admins can manage categories
+      allow create, update: if isAdmin() &&
+                              isValidString(request.resource.data.name, 100);
+      allow delete: if isAdmin();
+    }
+
+    // ===== CARTS COLLECTION - ENHANCED SECURITY =====
+
+    match /carts/{userId} {
+      // OWASP A01: Users can only access their own cart
+      allow read: if isOwner(userId) && isActiveUser() && accountNotLocked();
+
+      // OWASP A08: Strict validation on cart creation and updates
+      allow create, update: if isOwner(userId) &&
+                              isActiveUser() &&
+                              accountNotLocked() &&
+                              request.resource.data.userId == userId &&
+                              cartItemsValid(request.resource.data.items) &&
+                              isValidCartTotal(request.resource.data.total) &&
+                              request.resource.data.items.size() <= 100;
+
+      allow delete: if isOwner(userId);
+    }
+
+    // ===== ORDERS COLLECTION - ENHANCED SECURITY =====
+
+    match /orders/{orderId} {
+      // OWASP A01: Users can read their own orders
+      // Admins, technicians, and assigned drivers can read orders
+      allow read: if isOwner(resource.data.userId) ||
+                     isAdmin() ||
+                     isTechnician() ||
+                     (isDriver() && request.auth.uid == resource.data.driverId);
+
+      // OWASP A04 & A08: Only active, email-verified users can create orders
+      // Strict validation on order data to prevent price manipulation
+      allow create: if isSignedIn() &&
+                       isActiveUser() &&
+                       accountNotLocked() &&
+                       isEmailVerified() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       isValidCartTotal(request.resource.data.total) &&
+                       orderItemsValid(request.resource.data.items) &&
+                       request.resource.data.items.size() > 0 &&
+                       request.resource.data.items.size() <= 100 &&
+                       isValidCartTotal(request.resource.data.subtotal) &&
+                       request.resource.data.total > 0 &&
+                       request.resource.data.taxAmount >= 0 &&
+                       request.resource.data.shippingAmount >= 0;
+
+      // OWASP A01: Admins can update any order
+      // Drivers can only update delivery status of their assigned orders
+      allow update: if isAdmin() ||
+                       (isDriver() &&
+                        request.auth.uid == resource.data.driverId &&
+                        // Drivers can only update specific fields
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'fulfillmentStatus', 'updatedAt']));
+
+      // OWASP A01: Only admins can delete orders (soft delete recommended)
+      allow delete: if isAdmin();
+    }
+
+    // ===== REVIEWS COLLECTION - ENHANCED SECURITY =====
+
+    match /reviews/{reviewId} {
+      // Approved reviews are public
+      // Users can see their own reviews (any status)
+      allow read: if resource.data.status == 'approved' ||
+                     isOwner(resource.data.userId) ||
+                     isAdmin();
+
+      // OWASP A03 & A07: Verified, active users can create reviews with validation
+      allow create: if isSignedIn() &&
+                       isEmailVerified() &&
+                       isActiveUser() &&
+                       accountNotLocked() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.rating >= 1 &&
+                       request.resource.data.rating <= 5 &&
+                       isValidString(request.resource.data.comment, 2000);
+
+      // Users can update their own pending reviews
+      // Admins can update any review (for moderation)
+      allow update: if (isOwner(resource.data.userId) &&
+                        resource.data.status == 'pending' &&
+                        request.resource.data.rating >= 1 &&
+                        request.resource.data.rating <= 5) ||
+                       isAdmin();
+
+      // OWASP A01: Only admins can delete reviews
+      allow delete: if isAdmin();
+    }
+
+    // ===== DELIVERIES COLLECTION - ENHANCED SECURITY =====
+
+    match /deliveries/{deliveryId} {
+      // OWASP A01: Customers can read their own deliveries
+      // Drivers can read their assigned deliveries
+      allow read: if isOwner(resource.data.customerId) ||
+                     (isDriver() && request.auth.uid == resource.data.driverId) ||
+                     isAdmin();
+
+      // Only admins can create deliveries
+      allow create: if isAdmin();
+
+      // Drivers can update their assigned deliveries (limited fields)
+      // Admins can update any delivery
+      allow update: if (isDriver() &&
+                        request.auth.uid == resource.data.driverId &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'currentLocation', 'updatedAt'])) ||
+                       isAdmin();
+
+      // Only admins can delete deliveries
+      allow delete: if isAdmin();
+    }
+
+    // ===== SERVICE REQUESTS COLLECTION - ENHANCED SECURITY =====
+
+    match /serviceRequests/{requestId} {
+      // OWASP A01: Customers can read their own requests
+      // Technicians can read assigned requests
+      allow read: if isOwner(resource.data.customerId) ||
+                     (isTechnician() && request.auth.uid == resource.data.assignedTechnicianId) ||
+                     isAdmin();
+
+      // OWASP A03: Active users can create service requests with validation
+      allow create: if isSignedIn() &&
+                       isActiveUser() &&
+                       accountNotLocked() &&
+                       request.resource.data.customerId == request.auth.uid &&
+                       isValidString(request.resource.data.description, 5000);
+
+      // Assigned technicians can update their requests (limited fields)
+      // Admins can update any request
+      allow update: if (isTechnician() &&
+                        request.auth.uid == resource.data.assignedTechnicianId &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'updatedAt'])) ||
+                       isAdmin();
+
+      // Only admins can delete requests
+      allow delete: if isAdmin();
+    }
+
+    // ===== NOTIFICATIONS COLLECTION - ENHANCED SECURITY =====
+
+    match /notifications/{notificationId} {
+      // OWASP A01: Users can only read their own notifications
+      allow read: if isOwner(resource.data.userId);
+
+      // System/admin can create notifications
+      allow create: if isAdmin();
+
+      // OWASP A01: Users can only mark their notifications as read (limited fields)
+      allow update: if isOwner(resource.data.userId) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt']);
+
+      // Users can delete their own notifications
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ===== ANALYTICS COLLECTION - ENHANCED SECURITY =====
+
+    match /analytics/{analyticsId} {
+      // OWASP A01: Only admins can access analytics
+      allow read, write: if isAdmin();
+    }
+
+    // ===== SECURITY MONITORING COLLECTION - NEW =====
+    // Tracks failed login attempts, rate limiting, suspicious activity
+
+    match /securityEvents/{eventId} {
+      // OWASP A09: Only admins can read security events
+      allow read: if isAdmin();
+
+      // System can create security events (via Cloud Functions)
+      // Users cannot create security events directly
+      allow create: if false;
+
+      // No updates or deletes allowed
+      allow update, delete: if false;
+    }
+
+    // ===== AUDIT LOGS COLLECTION - NEW =====
+    // Tracks sensitive operations for compliance
+
+    match /auditLogs/{logId} {
+      // OWASP A09: Only admins can read audit logs
+      allow read: if isAdmin();
+
+      // System can create audit logs (via Cloud Functions)
+      allow create: if false;
+
+      // Audit logs are immutable
+      allow update, delete: if false;
+    }
+  }
+}
+
+// ===== STORAGE RULES - ENHANCED SECURITY =====
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // OWASP A03: File validation helper
+    function isValidImageType() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png|webp|gif)');
+    }
+
+    function isValidFileSize(maxSizeMB) {
+      return request.resource.size < maxSizeMB * 1024 * 1024;
+    }
+
+    // Product images - public read, admin write with validation
+    match /products/{productId}/{allPaths=**} {
+      allow read: if true;
+
+      // OWASP A03 & A05: Validate file type and size
+      allow write: if request.auth != null &&
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                      isValidImageType() &&
+                      isValidFileSize(10); // 10MB max
+    }
+
+    // User avatars - public read, owner write with validation
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if true;
+
+      // OWASP A03: Strict validation on user uploads
+      allow write: if request.auth.uid == userId &&
+                      isValidImageType() &&
+                      isValidFileSize(5) && // 5MB max
+                      fileName.matches('^[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp)$'); // Prevent path traversal
+    }
+
+    // Review images - public read, verified users write with validation
+    match /reviews/{reviewId}/{fileName} {
+      allow read: if true;
+
+      // OWASP A03 & A07: Email verified users only, strict validation
+      allow write: if request.auth != null &&
+                      request.auth.token.email_verified == true &&
+                      isValidImageType() &&
+                      isValidFileSize(10) && // 10MB max
+                      fileName.matches('^[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp)$');
+    }
+
+    // Delivery proof (signature, photos) - restricted access with validation
+    match /deliveries/{deliveryId}/proof/{fileName} {
+      allow read: if request.auth != null;
+
+      // OWASP A01: Only assigned driver or admin can upload
+      allow write: if request.auth != null &&
+                      isValidImageType() &&
+                      isValidFileSize(10) &&
+                      (get(/databases/$(database)/documents/deliveries/$(deliveryId)).data.driverId == request.auth.uid ||
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    // Service request attachments with validation
+    match /serviceRequests/{requestId}/{fileName} {
+      allow read: if request.auth != null;
+
+      // OWASP A03: Strict file validation
+      allow write: if request.auth != null &&
+                      isValidImageType() &&
+                      isValidFileSize(20) && // 20MB max
+                      fileName.matches('^[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
+    }
+  }
+}

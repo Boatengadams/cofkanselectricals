@@ -1,0 +1,1234 @@
+import { useState, useEffect, lazy, Suspense, startTransition } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ThemeToggle } from './components/ThemeToggle';
+import { ImageWithFallback } from './components/figma/ImageWithFallback';
+import { ProductConfigurator } from './components/ProductConfigurator';
+import { InventoryChecker } from './components/InventoryChecker';
+import { ProductCatalog } from './components/ProductCatalog';
+import { PersonalizedRecommendations } from './components/PersonalizedRecommendations';
+import { ForYouRail } from './components/personalization/ForYouRail';
+import { csvProducts } from './data/csvProducts';
+import { LuxuryMegaMenu } from './components/LuxuryMegaMenu';
+import { SupportWidget } from './components/support/SupportWidget';
+import { UserProfile } from './components/UserProfile';
+import { EnhancedAuthModal } from './components/EnhancedAuthModal';
+import { DashboardPro } from './components/dashboard-pro/DashboardPro';
+import { BlackFridayDeals } from './components/BlackFridayDeals';
+const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+
+const PageFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+import { CartButton } from './components/cart/CartButton';
+import { CartDrawer } from './components/cart/CartDrawer';
+import { DashboardOverlay } from './components/DashboardOverlay';
+import { EmailVerificationBanner } from './components/EmailVerificationBanner';
+import { HoverProvider } from './contexts/HoverContext';
+// Backend & real auth are paused while DEMO_MODE is on (see /src/lib/demo-mode.ts).
+// To re-enable the real backend, swap this back to:
+//   import { FirebaseAuthProvider, useFirebaseAuth as useAuth } from './contexts/FirebaseAuthContext';
+import { FirebaseAuthProvider, useFirebaseAuth as useAuth } from './contexts/FirebaseAuthContext';
+import { DemoBanner } from './components/DemoBanner';
+import { CookieConsent } from './components/privacy/CookieConsent';
+import { TargetedPromo } from './components/personalization/TargetedPromo';
+import { useCartStore } from '@/stores/cart-store';
+import type { UserRole } from './types';
+import { Toaster } from 'react-hot-toast';
+import { Zap, Home, Building2, Lightbulb, ArrowRight, Award, Sparkles, Package, Star, Menu, X, ChevronRight, Trophy, Globe, Shield, CheckCircle, Crown, TrendingUp, Tag } from 'lucide-react';
+import cofkansLogo from '../imports/cofkans.png';
+
+// Hero showroom images
+import hero1 from '../imports/5769454295303527144.jpg';
+import hero2 from '../imports/5769454295303527145.jpg';
+import hero3 from '../imports/5769454295303527146.jpg';
+import hero4 from '../imports/5769454295303527147.jpg';
+import hero5 from '../imports/5769454295303527148.jpg';
+import hero6 from '../imports/5769454295303527149.jpg';
+import hero7 from '../imports/5769454295303527150.jpg';
+import hero8 from '../imports/5769454295303527151.jpg';
+import hero9 from '../imports/5769454295303527152.jpg';
+
+function AppContent() {
+  const { user, signInWithProvider, signUpWithEmail, signInWithEmail, resetPassword, signOut, isLoading } = useAuth();
+  const { initializeCart } = useCartStore();
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [scrollY, setScrollY] = useState(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showCartDrawer, setShowCartDrawer] = useState(false);
+  const [currentView, _setCurrentView] = useState<'home' | 'dashboard' | 'deals' | 'admin' | 'user-dashboard' | 'checkout'>('home');
+  const setCurrentView = (v: typeof currentView) => startTransition(() => _setCurrentView(v));
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'orders' | 'wishlist' | 'settings' | null>(null);
+  const openUserDashboard = (tab?: 'overview' | 'orders' | 'wishlist' | 'settings') => {
+    setDashboardTab(tab ?? null);
+    setCurrentView('user-dashboard');
+  };
+
+  // Initialize cart when user logs in
+  useEffect(() => {
+    if (user?.uid) {
+      initializeCart(user.uid);
+    }
+  }, [user?.uid, initializeCart]);
+
+  // Customers see UserDashboard; admin/technician/driver see RoleBasedDashboard.
+  useEffect(() => {
+    if (!user) return;
+    const staff = user.role === 'admin' || user.role === 'technician' || user.role === 'driver' || user.role === 'support_agent';
+    // Staff land on RoleBasedDashboard unless they deep-linked to a personal tab (settings/profile).
+    if (staff && currentView === 'user-dashboard' && !dashboardTab) setCurrentView('dashboard');
+    if (!staff && currentView === 'dashboard') setCurrentView('user-dashboard');
+  }, [user?.role, currentView, dashboardTab]);
+
+  const handleSignIn = async (provider: 'google' | 'apple') => {
+    try {
+      await signInWithProvider(provider);
+      setShowAuthModal(false);
+      setCurrentView('user-dashboard');
+    } catch (error) {
+      console.error('Sign in failed:', error);
+      // Error toast is shown by FirebaseAuthContext
+    }
+  };
+
+  const handleEmailSignUp = async (email: string, password: string, displayName: string, role?: UserRole) => {
+    try {
+      await signUpWithEmail(email, password, displayName, role);
+      setShowAuthModal(false);
+      setCurrentView('user-dashboard');
+    } catch (error) {
+      console.error('Email sign up failed:', error);
+      // Error toast is shown by FirebaseAuthContext
+    }
+  };
+
+  const handleEmailSignIn = async (email: string, password: string) => {
+    try {
+      await signInWithEmail(email, password);
+      setShowAuthModal(false);
+      setCurrentView('user-dashboard');
+    } catch (error) {
+      console.error('Email sign in failed:', error);
+      // Error toast is shown by FirebaseAuthContext
+    }
+  };
+
+  const handlePasswordReset = async (email: string) => {
+    try {
+      await resetPassword(email);
+      // Success toast is shown by FirebaseAuthContext
+    } catch (error) {
+      console.error('Password reset failed:', error);
+      // Error toast is shown by FirebaseAuthContext
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    setCurrentView('home');
+  };
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToSection = (sectionId: string) => {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      const offset = 80; // Account for fixed header
+      const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+      const offsetPosition = elementPosition - offset;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      });
+    }
+    setMobileMenuOpen(false);
+  };
+
+  const heroSlides = [
+    {
+      img: hero1,
+      title: 'Premium Showroom Experience',
+      subtitle: 'Luxury Lighting Collections'
+    },
+    {
+      img: hero2,
+      title: 'Illuminate Your World',
+      subtitle: 'Designer Chandeliers & Fixtures'
+    },
+    {
+      img: hero3,
+      title: 'Luxury Meets Technology',
+      subtitle: 'Crystal Chandeliers & Smart Automation'
+    },
+    {
+      img: hero4,
+      title: 'Exquisite Craftsmanship',
+      subtitle: 'Premium Pendant Collections'
+    },
+    {
+      img: hero5,
+      title: 'Ghana\'s Premier Excellence',
+      subtitle: 'Trusted by Architects & Developers'
+    },
+    {
+      img: hero6,
+      title: 'Architectural Brilliance',
+      subtitle: 'Modern Lighting Solutions'
+    },
+    {
+      img: hero7,
+      title: 'Sophisticated Elegance',
+      subtitle: 'Curated Designer Pieces'
+    },
+    {
+      img: hero8,
+      title: 'Innovation & Style',
+      subtitle: 'Contemporary Lighting Design'
+    },
+    {
+      img: hero9,
+      title: 'Timeless Luxury',
+      subtitle: 'High-End Electrical Solutions'
+    },
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+      setScrollY(window.scrollY);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    // Update favicon
+    const favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
+    if (favicon) {
+      favicon.href = cofkansLogo;
+    } else {
+      const newFavicon = document.createElement('link');
+      newFavicon.rel = 'icon';
+      newFavicon.href = cofkansLogo;
+      document.head.appendChild(newFavicon);
+    }
+
+    // Update document title
+    document.title = 'Cofkans Electricals - Premium Lighting & Electrical Solutions';
+  }, []);
+
+  // Show Black Friday Deals
+  if (currentView === 'deals') {
+    return (
+      <HoverProvider>
+        <div className="min-h-screen w-full bg-background text-foreground antialiased">
+          <motion.nav initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+            className="fixed top-0 left-0 right-0 z-50 bg-background/70 backdrop-blur-3xl border-b border-border-light shadow-sm">
+            <div className="max-w-[1400px] mx-auto px-6 lg:px-12">
+              <div className="flex items-center justify-between h-20">
+                <button onClick={() => setCurrentView('home')}
+                  className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                  <img src={cofkansLogo} alt="Cofkans" className="h-10 w-auto" />
+                  <span className="font-bold text-lg">Black Friday Deals</span>
+                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setCurrentView('home')}
+                    className="px-4 py-2 rounded-lg hover:bg-muted transition-colors font-bold text-sm"
+                  >
+                    Back to Home
+                  </button>
+                  <ThemeToggle />
+                  {user ? (
+                    <UserProfile
+                      user={user}
+                      onSignIn={() => {}}
+                      onSignOut={handleSignOut}
+                      onOpenDashboard={openUserDashboard}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setShowAuthModal(true)}
+                      className="px-6 py-2 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 transition-colors"
+                    >
+                      Sign In
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.nav>
+          <div className="pt-20">
+            <BlackFridayDeals />
+          </div>
+          <SupportWidget />
+        </div>
+      </HoverProvider>
+    );
+  }
+
+  // Show Checkout
+  if (currentView === 'checkout' && user) {
+    return (
+      <HoverProvider>
+        <div className="min-h-screen w-full bg-background text-foreground antialiased">
+          <Suspense fallback={<PageFallback />}>
+            <CheckoutPage
+              onBack={() => setCurrentView('home')}
+              onComplete={() => setCurrentView('user-dashboard')}
+            />
+          </Suspense>
+        </div>
+      </HoverProvider>
+    );
+  }
+
+  // user-dashboard and dashboard now render as overlays on top of the home page (below).
+
+  // Show Admin Panel (only for admins)
+  if (currentView === 'admin' && user?.role === 'admin') {
+    return (
+      <HoverProvider>
+        <div className="min-h-screen w-full bg-background text-foreground antialiased">
+          <Suspense fallback={<PageFallback />}>
+            <AdminPage onBack={() => setCurrentView('dashboard')} />
+          </Suspense>
+          <SupportWidget />
+        </div>
+      </HoverProvider>
+    );
+  }
+
+  // 'dashboard' view also rendered as overlay (see bottom of home tree).
+
+  return (
+    <HoverProvider>
+    <div className="min-h-screen w-full bg-background text-foreground antialiased">
+      {/* Premium Navigation */}
+      <motion.nav
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6, ease: [0.19, 1, 0.22, 1] }}
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${
+          scrolled
+            ? 'bg-background/70 backdrop-blur-3xl border-b border-border-light shadow-[0_1px_0_0_rgba(0,0,0,0.02)]'
+            : 'bg-transparent'
+        }`}
+      >
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-12">
+          <div className="flex items-center justify-between h-20">
+            <motion.button
+              onClick={scrollToTop}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+              className="flex items-center relative group cursor-pointer"
+            >
+              <div className="relative px-6 py-3 rounded-2xl bg-black dark:bg-transparent border-2 border-black dark:border-primary/20 shadow-lg dark:shadow-none hover:shadow-xl transition-all duration-300">
+                <img
+                  src={cofkansLogo}
+                  alt="Cofkans Electricals"
+                  className="h-11 w-auto object-contain relative z-10"
+                  style={{
+                    filter: 'contrast(1.3) saturate(1.4) brightness(1.1) drop-shadow(0 2px 8px rgba(212, 175, 55, 0.3))',
+                  }}
+                />
+                {/* Premium glow effect on hover */}
+                <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl -z-10" />
+                {/* Shine effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000 rounded-2xl" />
+              </div>
+            </motion.button>
+
+            <div className="hidden lg:flex items-center gap-10">
+              {['Collections', 'Products', 'Wholesale'].map((item) => (
+                <button
+                  key={item}
+                  onClick={() => scrollToSection(item === 'Wholesale' ? 'products' : item.toLowerCase().replace(' ', '-'))}
+                  className="text-[15px] font-medium text-foreground/70 hover:text-foreground hover:scale-105 transition-all duration-200 relative group cursor-pointer"
+                >
+                  {item}
+                  <span className="absolute bottom-0 left-0 w-0 h-[2px] bg-primary transition-all duration-300 group-hover:w-full shadow-[0_0_8px_rgba(212,175,55,0.5)]" />
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-4">
+              <ThemeToggle />
+              <div className="hidden lg:flex items-center gap-4">
+                <motion.button
+                  onClick={() => setCurrentView('deals')}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 relative overflow-hidden group"
+                >
+                  <motion.div
+                    animate={{ rotate: [0, 10, -10, 0] }}
+                    transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+                  >
+                    <Tag className="w-4 h-4 fill-current" />
+                  </motion.div>
+                  <span>Black Friday</span>
+                  <span className="absolute top-0 right-0 bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 rounded-bl-lg">
+                    30% OFF
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+                </motion.button>
+                {user && (
+                  <button onClick={() => setCurrentView('dashboard')}
+                    className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl font-semibold transition-colors">
+                    My Dashboard
+                  </button>
+                )}
+                {(!user || user.role === 'customer') && (
+                  <CartButton onClick={() => setShowCartDrawer(true)} />
+                )}
+                <UserProfile
+                  user={user}
+                  onSignIn={() => setShowAuthModal(true)}
+                  onSignOut={handleSignOut}
+                  onOpenDashboard={openUserDashboard}
+                />
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="lg:hidden p-2.5"
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: [0.19, 1, 0.22, 1] }}
+                className="lg:hidden border-t border-border"
+              >
+                <div className="py-6 space-y-1">
+                  <button
+                    onClick={() => {
+                      setCurrentView('deals');
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full text-left block px-4 py-3 mb-2 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-xl font-bold shadow-lg flex items-center justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Tag className="w-4 h-4 fill-current" />
+                      Black Friday Deals
+                    </span>
+                    <span className="bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded">
+                      50% OFF
+                    </span>
+                  </button>
+                  {['Collections', 'Products', 'Wholesale', 'Contact'].map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => {
+                        if (item === 'Contact') {
+                          const footer = document.querySelector('footer');
+                          if (footer) {
+                            footer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
+                        } else if (item === 'Wholesale') {
+                          scrollToSection('products');
+                        } else {
+                          scrollToSection(item.toLowerCase().replace(' ', '-'));
+                        }
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full text-left block px-4 py-3 text-[15px] font-medium text-foreground/70 hover:text-foreground hover:bg-muted/50 rounded-xl transition-all duration-200 cursor-pointer"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.nav>
+
+      {/* Email Verification Banner */}
+      <EmailVerificationBanner />
+
+      {/* Cinematic Hero */}
+      <section className="relative h-[100vh] w-full overflow-hidden bg-black dark:bg-foreground">
+        {heroSlides.map((slide, index) => (
+          <motion.div
+            key={index}
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: currentSlide === index ? 1 : 0,
+              scale: currentSlide === index ? 1 : 1.05,
+            }}
+            transition={{ duration: 1.6, ease: [0.19, 1, 0.22, 1] }}
+            className="absolute inset-0"
+            style={{
+              transform: currentSlide === index ? `translateY(${scrollY * 0.5}px)` : 'translateY(0)',
+            }}
+          >
+            {/* Subtle dark gradient only at bottom for text readability */}
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/40 z-10" />
+            <img
+              src={slide.img}
+              alt={slide.title}
+              className="w-full h-full object-cover"
+            />
+          </motion.div>
+        ))}
+
+        <div
+          className="absolute inset-0 flex items-center justify-center pt-20 px-6 z-20"
+          style={{
+            transform: `translateY(${scrollY * 0.3}px)`,
+            opacity: Math.max(0, 1 - scrollY / 500),
+          }}
+        >
+          <div className="max-w-6xl mx-auto text-center">
+            <motion.div
+              key={currentSlide}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, duration: 1, ease: [0.19, 1, 0.22, 1] }}
+              className="inline-flex items-center gap-3 mb-10 px-5 py-2.5 rounded-full bg-black/80 dark:bg-white/10 backdrop-blur-md border border-white/20"
+            >
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <span className="text-[15px] text-white font-semibold tracking-wide">{heroSlides[currentSlide].subtitle}</span>
+            </motion.div>
+
+            <motion.h1
+              key={`title-${currentSlide}`}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6, duration: 1, ease: [0.19, 1, 0.22, 1] }}
+              className="mb-8 text-white leading-[1.08] tracking-tight"
+              style={{
+                fontFamily: 'var(--font-luxury)',
+                fontSize: 'clamp(3rem, 8vw, 7rem)',
+                textShadow: '0 2px 40px rgba(0,0,0,0.3)'
+              }}
+            >
+              {heroSlides[currentSlide].title}
+            </motion.h1>
+
+            <motion.p
+              key={`desc-${currentSlide}`}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8, duration: 1, ease: [0.19, 1, 0.22, 1] }}
+              className="text-xl text-white/80 mb-14 max-w-2xl mx-auto leading-relaxed"
+            >
+              Experience unparalleled luxury and innovation in every detail
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1, duration: 1, ease: [0.19, 1, 0.22, 1] }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-5"
+            >
+              <motion.button
+                onClick={() => scrollToSection('collections')}
+                whileHover={{ scale: 1.05, y: -4 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                className="group relative px-10 py-5 bg-gradient-gold rounded-full font-bold text-[15px] text-foreground shadow-[0_8px_30px_rgba(212,175,55,0.35)] hover:shadow-[0_16px_50px_rgba(212,175,55,0.55)] transition-all duration-300 flex items-center gap-3 overflow-hidden cursor-pointer"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
+                <span className="relative">Explore Collections</span>
+                <ChevronRight className="relative w-5 h-5 transition-transform duration-300 group-hover:translate-x-2" strokeWidth={2.5} />
+              </motion.button>
+             
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Decorative Elements */}
+        <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-muted/40 via-muted/10 to-transparent z-20" />
+
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 flex gap-3">
+          {heroSlides.map((_, index) => (
+            <motion.button
+              key={index}
+              whileHover={{ scale: 1.2 }}
+              onClick={() => setCurrentSlide(index)}
+              className={`h-1.5 rounded-full transition-all duration-500 ${
+                currentSlide === index
+                  ? 'w-12 bg-gradient-gold shadow-[0_0_12px_rgba(212,175,55,0.6)]'
+                  : 'w-1.5 bg-white/30 hover:bg-white/50'
+              }`}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* Premium Collections */}
+      <section id="collections" className="relative pt-10 sm:pt-16 pb-10 sm:pb-16 px-4 sm:px-6">
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/20 to-background" />
+
+        <div className="max-w-[1400px] mx-auto relative">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-100px' }}
+            transition={{ duration: 0.8, ease: [0.19, 1, 0.22, 1] }}
+            className="text-center mb-10 sm:mb-20 lg:mb-28"
+          >
+            <div className="inline-flex items-center gap-2 mb-4 sm:mb-6 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-gold-subtle border border-primary/20">
+              <span className="text-[11px] sm:text-[13px] text-primary font-bold tracking-widest uppercase">Featured</span>
+            </div>
+            <h2 className="mb-3 sm:mb-8 text-3xl sm:text-5xl md:text-7xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/60" style={{ fontFamily: 'var(--font-luxury)' }}>
+              Our Collections
+            </h2>
+            <p className="text-sm sm:text-lg lg:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed px-2">
+              Discover our curated selection of luxury lighting and electrical solutions, meticulously crafted for discerning clients
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 lg:gap-10">
+            {[
+              {
+                title: 'Luxury Lighting',
+                img: 'https://images.unsplash.com/photo-1646764209478-f2fe29b1a4f1?w=800',
+                desc: 'Exquisite crystal and gold-plated chandeliers',
+                icon: Lightbulb,
+                href: '#products',
+                accent: 'primary'
+              },
+              {
+                title: 'Solar & Infrastructure',
+                img: 'https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800',
+                desc: 'Sustainable energy solutions',
+                icon: Home,
+                href: '#products',
+                accent: 'secondary'
+              },
+              {
+                title: 'Industrial Control',
+                img: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?w=800',
+                desc: 'Professional-grade components',
+                icon: Building2,
+                href: '#products',
+                accent: 'primary'
+              },
+            ].map((collection, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-100px' }}
+                transition={{ delay: i * 0.2, duration: 0.9, ease: [0.19, 1, 0.22, 1] }}
+                whileHover={{ y: -12 }}
+                className="group"
+              >
+                <button
+                  onClick={() => scrollToSection('products')}
+                  className="relative overflow-hidden rounded-2xl sm:rounded-[2rem] bg-card shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:shadow-[0_20px_60px_rgba(0,0,0,0.15)] transition-all duration-700 block border border-border-light hover:border-border w-full text-left cursor-pointer"
+                >
+                  <div className="aspect-[3/4] sm:aspect-[4/5] relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-black/40 via-black/20 to-transparent z-10 group-hover:opacity-70 transition-opacity duration-700" />
+
+                    <motion.img
+                      whileHover={{ scale: 1.08 }}
+                      transition={{ duration: 0.8, ease: [0.19, 1, 0.22, 1] }}
+                      src={collection.img}
+                      alt={collection.title}
+                      className="w-full h-full object-cover"
+                    />
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
+
+                    <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-6 lg:p-12 text-white z-20">
+                      <div className={`inline-flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 lg:w-16 lg:h-16 rounded-xl sm:rounded-2xl bg-${collection.accent}/20 backdrop-blur-sm border border-white/20 mb-2 sm:mb-4 lg:mb-6 group-hover:scale-110 transition-transform duration-500`}>
+                        <collection.icon className="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" strokeWidth={1.5} />
+                      </div>
+
+                      <h3 className="text-base sm:text-2xl lg:text-4xl font-semibold mb-1 sm:mb-2 lg:mb-4 tracking-tight leading-tight" style={{ fontFamily: 'var(--font-luxury)' }}>
+                        {collection.title}
+                      </h3>
+                      <p className="hidden sm:block text-white/90 mb-3 lg:mb-8 text-sm lg:text-base leading-relaxed">{collection.desc}</p>
+
+                      <div className="inline-flex items-center gap-1.5 sm:gap-3 text-xs sm:text-sm lg:text-base font-bold">
+                        <span className="hidden sm:inline">Explore Collection</span>
+                        <span className="sm:hidden">Explore</span>
+                        <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 lg:w-5 lg:h-5 group-hover:translate-x-2 transition-transform duration-300" strokeWidth={2.5} />
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Personalized Recommendations */}
+      {user && (
+        <section className="py-16 px-6 bg-[var(--color-surface-hover)]">
+          <div className="max-w-[1600px] mx-auto">
+            <PersonalizedRecommendations
+              user={user}
+              onRequireAuth={() => setShowAuthModal(true)}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* Personalised "For You" rail — honours cookie consent */}
+      <ForYouRail
+        products={csvProducts.map(p => ({ id: p.id, name: p.name, category: p.category, price: p.price, image: p.image }))}
+        onSelect={() => {
+          const el = document.getElementById('products');
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+
+      {/* Complete Product Catalog */}
+      <section id="products" className="pb-40 px-6">
+        <div className="max-w-[1600px] mx-auto">
+          <ProductCatalog
+            user={user}
+            onRequireAuth={() => setShowAuthModal(true)}
+          />
+        </div>
+      </section>
+
+      {/* Legacy of Excellence - Comprehensive Section */}
+      <section className="relative w-full py-32 bg-white dark:bg-black text-foreground dark:text-white overflow-hidden">
+        {/* Premium Background Pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage:
+                'linear-gradient(30deg, transparent 48%, currentColor 48%, currentColor 52%, transparent 52%)',
+              backgroundSize: '80px 80px',
+            }}
+          />
+        </div>
+
+        {/* Gold Accent Line */}
+        <div className="absolute left-0 right-0 top-1/2 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-20" />
+
+        <div className="max-w-7xl mx-auto px-6 relative">
+          {/* Header */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+            className="text-center mb-24"
+          >
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 border border-primary/30 rounded-full mb-6 backdrop-blur-sm">
+              <Crown className="w-4 h-4 text-primary" strokeWidth={2} />
+              <span className="text-sm font-bold text-primary">Since 1985</span>
+            </div>
+            <h2
+              className="text-5xl md:text-7xl font-bold mb-6 bg-clip-text text-transparent bg-gradient-to-r from-foreground via-primary to-foreground dark:from-white dark:via-primary dark:to-white"
+              style={{ fontFamily: 'var(--font-luxury)' }}
+            >
+              A Legacy of Excellence
+            </h2>
+            <p className="text-xl text-muted-foreground dark:text-white/70 max-w-3xl mx-auto leading-relaxed">
+              Four decades of illuminating Ghana's most prestigious residences, hotels, and commercial spaces with
+              uncompromising quality and craftsmanship
+            </p>
+          </motion.div>
+
+          {/* Heritage Timeline */}
+          <div className="relative mb-32">
+            {/* Vertical Line */}
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-primary/30 to-transparent hidden lg:block" />
+
+            <div className="space-y-24">
+              {[
+                {
+                  year: '1985',
+                  title: 'The Beginning',
+                  description: 'Cofkans Electricals founded with a vision to bring luxury lighting to Ghana',
+                  icon: Star,
+                  achievement: 'First premium electrical showroom in Accra',
+                },
+                {
+                  year: '1995',
+                  title: 'Expansion Era',
+                  description: 'Opened branches in Kumasi and Takoradi, establishing nationwide presence',
+                  icon: TrendingUp,
+                  achievement: '3 major showrooms across Ghana',
+                },
+                {
+                  year: '2005',
+                  title: 'International Recognition',
+                  description: 'Partnership with European luxury lighting brands, bringing world-class products',
+                  icon: Globe,
+                  achievement: 'Exclusive distributor for 15+ premium brands',
+                },
+                {
+                  year: '2015',
+                  title: 'Smart Innovation',
+                  description: 'Pioneered smart home lighting integration and automation in West Africa',
+                  icon: Zap,
+                  achievement: 'First smart lighting showroom in Ghana',
+                },
+                {
+                  year: '2020',
+                  title: 'Excellence Awards',
+                  description: 'Recognized as Ghana\'s Premier Luxury Electrical Solutions Provider',
+                  icon: Award,
+                  achievement: 'Best Electrical Retailer Award',
+                },
+                {
+                  year: '2025',
+                  title: 'Luxury Leadership',
+                  description: 'Celebrating 40 years of illuminating Ghana\'s most prestigious spaces',
+                  icon: Crown,
+                  achievement: '5000+ projects, 98% satisfaction',
+                },
+              ].map((milestone, idx) => (
+                <motion.div
+                  key={milestone.year}
+                  initial={{ opacity: 0, y: 50 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-100px' }}
+                  transition={{ duration: 0.8, delay: idx * 0.1 }}
+                  className={`relative grid lg:grid-cols-2 gap-8 items-center ${
+                    idx % 2 === 0 ? '' : 'lg:flex-row-reverse'
+                  }`}
+                >
+                  {/* Content */}
+                  <div className={`${idx % 2 === 0 ? 'lg:text-right lg:pr-16' : 'lg:pl-16 lg:col-start-2'}`}>
+                    {/* Year Badge */}
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      className={`inline-block mb-6 ${idx % 2 === 0 ? 'lg:float-right lg:clear-right' : ''}`}
+                    >
+                      <div className="px-6 py-3 bg-gradient-to-r from-primary to-secondary rounded-2xl shadow-lg shadow-primary/20">
+                        <span className="text-3xl font-bold text-white dark:text-white" style={{ fontFamily: 'var(--font-luxury)' }}>
+                          {milestone.year}
+                        </span>
+                      </div>
+                    </motion.div>
+
+                    <div className="clear-both">
+                      <h3 className="text-3xl font-bold mb-4">{milestone.title}</h3>
+                      <p className="text-lg text-muted-foreground dark:text-white/70 mb-4 leading-relaxed">
+                        {milestone.description}
+                      </p>
+
+                      {/* Achievement Badge */}
+                      <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 dark:bg-card border border-white/10 dark:border-border rounded-xl backdrop-blur-sm">
+                        <Award className="w-4 h-4 text-primary" strokeWidth={2} />
+                        <span className="text-sm font-medium text-foreground dark:text-white/90">
+                          {milestone.achievement}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Icon */}
+                  <div className={`flex ${idx % 2 === 0 ? 'lg:justify-end' : 'lg:justify-start lg:col-start-1 lg:row-start-1'}`}>
+                    <motion.div
+                      whileHover={{ scale: 1.1, rotate: 5 }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 10 }}
+                      className="relative"
+                    >
+                      <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl shadow-primary/30 relative z-10">
+                        <milestone.icon className="w-12 h-12 text-white" strokeWidth={1.5} />
+                      </div>
+                      {/* Glow Effect */}
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary to-secondary blur-xl opacity-50 -z-10" />
+                    </motion.div>
+                  </div>
+
+                  {/* Center Dot (Desktop only) */}
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden lg:block">
+                    <div className="w-4 h-4 rounded-full bg-primary border-4 border-black dark:border-background shadow-lg shadow-primary/50" />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          {/* Awards & Certifications */}
+          <div className="mb-32">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="text-center mb-16"
+            >
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 border border-primary/30 rounded-full mb-6">
+                <Award className="w-4 h-4 text-primary" strokeWidth={2} />
+                <span className="text-sm font-bold text-primary">Recognized Excellence</span>
+              </div>
+              <h3 className="text-4xl md:text-5xl font-bold mb-4" style={{ fontFamily: 'var(--font-luxury)' }}>
+                Awards & Certifications
+              </h3>
+              <p className="text-lg text-muted-foreground dark:text-white/70 max-w-2xl mx-auto">
+                Trusted by industry leaders and recognized for excellence in quality and service
+              </p>
+            </motion.div>
+
+            {/* Awards Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-16">
+              {[
+                {
+                  year: '2024',
+                  title: 'Best Electrical Retailer',
+                  organization: 'Ghana Business Excellence Awards',
+                  icon: Trophy,
+                  color: 'from-yellow-400 to-yellow-600',
+                },
+                {
+                  year: '2023',
+                  title: 'Premium Service Provider',
+                  organization: 'West Africa Trade Awards',
+                  icon: Star,
+                  color: 'from-blue-400 to-blue-600',
+                },
+                {
+                  year: '2022',
+                  title: 'Innovation in Smart Homes',
+                  organization: 'Technology Excellence Awards',
+                  icon: TrendingUp,
+                  color: 'from-purple-400 to-purple-600',
+                },
+                {
+                  year: '2021',
+                  title: 'Customer Satisfaction Leader',
+                  organization: 'Consumer Choice Awards',
+                  icon: Award,
+                  color: 'from-green-400 to-green-600',
+                },
+              ].map((award, idx) => (
+                <motion.div
+                  key={award.title}
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.6, delay: idx * 0.1 }}
+                  whileHover={{ y: -8, scale: 1.02 }}
+                  className="group relative"
+                >
+                  <div className="bg-white/5 dark:bg-card rounded-3xl p-8 border-2 border-white/10 dark:border-border hover:border-primary transition-all duration-500 shadow-lg hover:shadow-2xl h-full backdrop-blur-sm">
+                    {/* Icon */}
+                    <div className="relative mb-6">
+                      <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${award.color} flex items-center justify-center shadow-lg`}>
+                        <award.icon className="w-8 h-8 text-white" strokeWidth={1.5} />
+                      </div>
+                      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${award.color} blur-xl opacity-30 group-hover:opacity-50 transition-opacity duration-500`} />
+                    </div>
+
+                    {/* Year Badge */}
+                    <div className="inline-block px-3 py-1 bg-primary/20 border border-primary/30 rounded-full mb-4">
+                      <span className="text-sm font-bold text-primary">{award.year}</span>
+                    </div>
+
+                    {/* Content */}
+                    <h4 className="text-xl font-bold mb-2">{award.title}</h4>
+                    <p className="text-sm text-muted-foreground dark:text-white/60">{award.organization}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Certifications */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="bg-white/5 dark:bg-card rounded-3xl p-10 border-2 border-white/10 dark:border-border shadow-xl backdrop-blur-sm"
+            >
+              <h4 className="text-2xl font-bold mb-8 text-center">Certifications & Compliance</h4>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+                {[
+                  { name: 'ISO 9001:2015 Certified', icon: CheckCircle },
+                  { name: 'Authorized Premium Distributor', icon: Shield },
+                  { name: 'Electrical Safety Compliant', icon: Shield },
+                  { name: 'Ghana Standards Authority Approved', icon: CheckCircle },
+                ].map((cert, idx) => (
+                  <motion.div
+                    key={cert.name}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    whileInView={{ opacity: 1, scale: 1 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.5, delay: idx * 0.1 }}
+                    className="flex items-center gap-3 p-4 bg-white/5 dark:bg-muted rounded-xl hover:bg-white/10 dark:hover:bg-muted/70 transition-colors duration-300 backdrop-blur-sm"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-secondary/20 border border-secondary/30 flex items-center justify-center flex-shrink-0">
+                      <cert.icon className="w-5 h-5 text-secondary" strokeWidth={2.5} />
+                    </div>
+                    <span className="text-sm font-semibold leading-tight">{cert.name}</span>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Trusted Excellence Stats */}
+          <div className="mb-24">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-100px' }}
+              transition={{ duration: 0.8, ease: [0.19, 1, 0.22, 1] }}
+              className="text-center mb-16"
+            >
+              <h3 className="text-4xl md:text-5xl font-bold mb-5" style={{ fontFamily: 'var(--font-luxury)' }}>
+                Trusted Excellence
+              </h3>
+              <p className="text-lg text-muted-foreground dark:text-white/70 max-w-2xl mx-auto">
+                Four decades of innovation and uncompromising quality
+              </p>
+            </motion.div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+              {[
+                { icon: Award, value: '40+', label: 'Years of Excellence' },
+                { icon: Package, value: '5000+', label: 'Premium Products' },
+                { icon: Building2, value: '500+', label: 'Elite Projects' },
+                { icon: Star, value: '1000+', label: 'Happy Clients' },
+              ].map((stat, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 40 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-100px' }}
+                  transition={{ delay: i * 0.15, duration: 0.8, ease: [0.19, 1, 0.22, 1] }}
+                  whileHover={{ y: -8, scale: 1.02 }}
+                  className="relative group text-center p-10 rounded-3xl bg-white/5 dark:bg-card border-2 border-white/10 dark:border-border-light hover:border-primary transition-all duration-500 backdrop-blur-sm"
+                >
+                  <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <stat.icon className="relative w-14 h-14 mx-auto mb-6 text-primary group-hover:scale-110 transition-transform duration-500" strokeWidth={1.5} />
+                  <div className="relative text-6xl font-semibold mb-4" style={{ fontFamily: 'var(--font-luxury)' }}>
+                    {stat.value}
+                  </div>
+                  <div className="relative text-[15px] text-muted-foreground dark:text-white/70 font-semibold tracking-wide">{stat.label}</div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom CTA */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+            className="text-center"
+          >
+            <div className="inline-block p-12 bg-gradient-to-br from-primary/10 via-transparent to-secondary/10 border-2 border-primary/20 rounded-3xl backdrop-blur-md">
+              <h3 className="text-3xl md:text-4xl font-bold mb-4" style={{ fontFamily: 'var(--font-luxury)' }}>
+                Join Our Story
+              </h3>
+              <p className="text-lg text-muted-foreground dark:text-white/70 mb-8 max-w-2xl">
+                Experience the same dedication to excellence that has served Ghana's elite for over four decades
+              </p>
+              <motion.button
+                onClick={() => scrollToSection('collections')}
+                whileHover={{ scale: 1.08, y: -3 }}
+                whileTap={{ scale: 0.92 }}
+                className="px-10 py-4 bg-gradient-to-r from-primary to-secondary text-white rounded-full font-bold text-lg shadow-2xl shadow-primary/30 hover:shadow-[0_20px_60px_rgba(212,175,55,0.6)] hover:from-primary/90 hover:to-secondary/90 transition-all duration-300 cursor-pointer"
+              >
+                Explore Collections
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Premium Footer */}
+      <footer className="relative py-32 px-6 bg-gradient-to-b from-background to-muted/30">
+        <div className="absolute inset-0 opacity-[0.015]"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
+            backgroundSize: '40px 40px'
+          }}
+        />
+
+        <div className="max-w-[1400px] mx-auto relative">
+          <div className="grid md:grid-cols-4 gap-16 mb-20">
+            <div>
+              <div className="mb-8 inline-block px-5 py-3 rounded-xl bg-black dark:bg-gradient-to-br dark:from-primary/5 dark:via-transparent dark:to-secondary/5 border-2 border-black dark:border-primary/10">
+                <img
+                  src={cofkansLogo}
+                  alt="Cofkans Logo"
+                  className="h-12 w-auto object-contain"
+                  style={{
+                    filter: 'contrast(1.2) saturate(1.3) brightness(1.1) drop-shadow(0 2px 6px rgba(212, 175, 55, 0.25))',
+                  }}
+                />
+              </div>
+              <p className="text-[15px] text-muted-foreground leading-relaxed font-medium">
+                Illuminating luxury spaces with precision engineering since 1985
+              </p>
+            </div>
+
+            {[
+              {
+                title: 'Collections',
+                links: [
+                  { name: 'Architectural Lighting', section: 'collections' },
+                  { name: 'Luxury Lighting', section: 'collections' },
+                  { name: 'Industrial Solutions', section: 'products' },
+                  { name: 'Accessories', section: 'products' }
+                ],
+              },
+              {
+                title: 'Services',
+                links: [
+                  { name: 'Wholesale Portal', section: 'products' },
+                  { name: 'Installation', section: 'footer' },
+                  { name: 'Consultation', section: 'footer' },
+                  { name: 'Product Catalog', section: 'products' }
+                ],
+              },
+              {
+                title: 'Connect',
+                links: [
+                  { name: 'Contact Us', section: 'footer' },
+                  { name: 'Support', section: 'footer' },
+                  { name: 'About Cofkans', section: 'collections' },
+                  { name: 'Careers', section: 'footer' }
+                ],
+              },
+            ].map((col, i) => (
+              <div key={i}>
+                <h4 className="font-bold mb-8 text-[15px] text-foreground tracking-wide">{col.title}</h4>
+                <ul className="space-y-4">
+                  {col.links.map((link, j) => (
+                    <li key={j}>
+                      <button
+                        onClick={() => {
+                          if (link.section === 'footer') {
+                            const footer = document.querySelector('footer');
+                            if (footer) {
+                              footer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                          } else {
+                            scrollToSection(link.section);
+                          }
+                        }}
+                        className="text-[15px] text-muted-foreground hover:text-foreground hover:translate-x-1 inline-block transition-all duration-200 font-medium cursor-pointer"
+                      >
+                        {link.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-12 border-t border-border-light flex flex-col md:flex-row justify-between items-center gap-6">
+            <p className="text-[14px] text-muted-foreground font-medium">
+              © 2026 Cofkans Electricals. All rights reserved.
+            </p>
+            <div className="flex items-center gap-10 text-[14px] text-muted-foreground font-medium">
+              <a href="#" className="hover:text-foreground hover:scale-105 transition-all duration-200 cursor-pointer">Privacy Policy</a>
+              <a href="#" className="hover:text-foreground hover:scale-105 transition-all duration-200 cursor-pointer">Terms of Service</a>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                <span className="text-primary font-semibold">Online</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* Global Components */}
+      <SupportWidget />
+
+      {/* Authentication Modal */}
+      <EnhancedAuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSignIn={handleSignIn}
+        onEmailSignUp={handleEmailSignUp}
+        onEmailSignIn={handleEmailSignIn}
+        onPasswordReset={handlePasswordReset}
+      />
+
+      {/* Shopping Cart Drawer */}
+      <CartDrawer
+        isOpen={showCartDrawer}
+        onClose={() => setShowCartDrawer(false)}
+        onCheckout={() => {
+          setShowCartDrawer(false);
+          setCurrentView('checkout');
+        }}
+      />
+
+      {/* Unified Pro Dashboard — overlay (role-aware) */}
+      <DashboardOverlay
+        open={(currentView === 'user-dashboard' || currentView === 'dashboard') && !!user}
+        onClose={() => { setDashboardTab(null); setCurrentView('home'); }}
+        title="Dashboard"
+      >
+        {user && (
+          <DashboardPro
+            user={user}
+            initialTab={dashboardTab}
+            onClose={() => { setDashboardTab(null); setCurrentView('home'); }}
+            onSignOut={handleSignOut}
+          />
+        )}
+      </DashboardOverlay>
+    </div>
+    </HoverProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <FirebaseAuthProvider>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: 'var(--background)',
+            color: 'var(--foreground)',
+            border: '1px solid var(--border)',
+          },
+          success: {
+            iconTheme: {
+              primary: 'var(--primary)',
+              secondary: 'white',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: 'white',
+            },
+          },
+        }}
+      />
+      <AppContent />
+      <DemoBanner />
+      <CookieConsent />
+      <TargetedPromo />
+    </FirebaseAuthProvider>
+  );
+}

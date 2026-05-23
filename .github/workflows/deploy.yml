@@ -1,0 +1,48 @@
+name: Build & Deploy to Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          VITE_FIREBASE_API_KEY: AIzaSyBxa8-e89nw7kJEpntlLieDot1Utog8blY
+          VITE_FIREBASE_AUTH_DOMAIN: cofkanselectricals-1.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: cofkanselectricals-1
+          VITE_FIREBASE_STORAGE_BUCKET: cofkanselectricals-1.firebasestorage.app
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "380088923938"
+          VITE_FIREBASE_APP_ID: "1:380088923938:web:e3ccaee709e3709615d77b"
+          VITE_FIREBASE_MEASUREMENT_ID: G-BSPJHD64FB
+          VITE_SUPER_ADMIN_EMAIL: boatengadams4g@gmail.com
+          VITE_FIREBASE_APPCHECK_SITE_KEY: 6LeySfgsAAAAAN1K_-Kvfc0YtyIr-fxAUvxWwILq
+          VITE_ENV: production
+        run: pnpm exec vite build
+
+      - name: Deploy to Firebase (Hosting + Firestore rules + indexes)
+        run: |
+          pnpm dlx firebase-tools@15 deploy \
+            --only hosting,firestore:rules,firestore:indexes \
+            --project cofkanselectricals-1 \
+            --non-interactive \
+            --token "$FIREBASE_TOKEN"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
