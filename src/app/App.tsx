@@ -10,6 +10,7 @@ import { ForYouRail } from './components/personalization/ForYouRail';
 import { csvProducts } from './data/csvProducts';
 import { LuxuryMegaMenu } from './components/LuxuryMegaMenu';
 import { SupportWidget } from './components/support/SupportWidget';
+import { MustChangePasswordBanner } from './components/auth/MustChangePasswordBanner';
 import { UserProfile } from './components/UserProfile';
 import { EnhancedAuthModal } from './components/EnhancedAuthModal';
 import { DashboardPro } from './components/dashboard-pro/DashboardPro';
@@ -1157,6 +1158,7 @@ function AppContent() {
       </footer>
 
       {/* Global Components */}
+      <MustChangePasswordBanner />
       <SupportWidget />
 
       {/* Authentication Modal */}

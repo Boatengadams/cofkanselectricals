@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { collection, query, getDocs, orderBy, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { promoteUserRole, demoteUser, isSuperAdmin } from '@/lib/admin-service';
-import { createWorkerAccount } from '@/lib/create-worker';
+import { createWorkerAccount, generateTempPassword } from '@/lib/create-worker';
 import { useFirebaseAuth } from '../../contexts/FirebaseAuthContext';
 import { sanitizeInput } from '@/lib/security-service';
 import toast from 'react-hot-toast';
@@ -18,6 +18,12 @@ import {
   CheckCircle,
   XCircle,
   UserPlus,
+  Copy,
+  Mail,
+  MessageCircle,
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import type { UserRole } from '../../types';
 import type { FirestoreUser } from '@/lib/firestore-schema';
@@ -51,7 +57,10 @@ export function UserManagementPanel() {
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'technician' | 'driver'>('technician');
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<{ email: string; password: string; displayName: string } | null>(null);
 
   const isCurrentUserSuperAdmin = isSuperAdmin(currentUser?.email || '');
 
@@ -154,19 +163,33 @@ export function UserManagementPanel() {
         username: newUsername,
         displayName: newDisplayName,
         role: newRole,
+        password: newPassword,
       });
-      if (res.success) {
-        toast.success(`Worker created: ${res.email}. Password reset email sent.`);
+      if (res.success && res.email && res.password) {
+        toast.success(`Worker account ready: ${res.email}`);
+        setCreated({ email: res.email, password: res.password, displayName: newDisplayName });
         setNewUsername('');
         setNewDisplayName('');
         setNewRole('technician');
-        setShowCreate(false);
+        setNewPassword('');
         await loadUsers();
       } else {
         toast.error(res.error || 'Failed to create worker.');
       }
     } finally {
       setCreating(false);
+    }
+  };
+
+  const credentialMessage = (c: { email: string; password: string; displayName: string }) =>
+    `Hi ${c.displayName}, your Cofkans Electricals account is ready.\n\nEmail: ${c.email}\nTemporary password: ${c.password}\n\nSign in at https://cofkanselectricals.web.app and change your password on first login.`;
+
+  const copyCredentials = async (c: { email: string; password: string; displayName: string }) => {
+    try {
+      await navigator.clipboard.writeText(credentialMessage(c));
+      toast.success('Credentials copied to clipboard');
+    } catch {
+      toast.error('Could not copy. Select the text manually.');
     }
   };
 
@@ -254,7 +277,7 @@ export function UserManagementPanel() {
                   className="mt-1 w-full px-3 py-2 bg-muted rounded-lg border-2 border-border focus:border-primary focus:outline-none font-semibold"
                 />
               </label>
-              <label className="block md:col-span-2">
+              <label className="block">
                 <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Role</span>
                 <select
                   value={newRole}
@@ -266,16 +289,94 @@ export function UserManagementPanel() {
                   <option value="admin">Admin</option>
                 </select>
               </label>
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Temporary password</span>
+                <div className="mt-1 flex items-center gap-2 bg-muted rounded-lg border-2 border-border focus-within:border-primary">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    placeholder="Type or generate (min 8 chars)"
+                    className="flex-1 px-3 py-2 bg-transparent focus:outline-none font-mono"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    className="px-2 text-muted-foreground hover:text-foreground"
+                    title={showPassword ? 'Hide' : 'Show'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setNewPassword(generateTempPassword()); setShowPassword(true); }}
+                    className="px-3 py-2 text-xs font-bold text-primary hover:bg-primary/10 rounded-r-lg flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Generate
+                  </button>
+                </div>
+              </label>
             </div>
             <button
               onClick={handleCreateWorker}
-              disabled={creating || !newUsername.trim() || !newDisplayName.trim()}
+              disabled={creating || !newUsername.trim() || !newDisplayName.trim() || newPassword.length < 8}
               className="w-full py-3 rounded-xl bg-foreground text-background font-bold disabled:opacity-50"
             >
-              {creating ? 'Creating…' : 'Create & send password setup email'}
+              {creating ? 'Creating…' : 'Create worker account'}
             </button>
             <p className="text-xs text-muted-foreground">
-              The new worker will receive an email to set their own password before they can sign in.
+              The worker signs in with this password once, then is required to set their own.
+            </p>
+          </div>
+        )}
+
+        {created && (
+          <div className="mt-4 p-4 bg-green-500/10 border-2 border-green-500/30 rounded-xl space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <h4 className="font-bold text-green-800 dark:text-green-300">Worker account created</h4>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-2 bg-background px-3 py-2 rounded-lg border border-border">
+                <span className="text-xs uppercase font-bold text-muted-foreground">Email</span>
+                <span className="font-mono truncate">{created.email}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 bg-background px-3 py-2 rounded-lg border border-border">
+                <span className="text-xs uppercase font-bold text-muted-foreground">Password</span>
+                <span className="font-mono truncate">{created.password}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => copyCredentials(created)}
+                className="flex items-center gap-1 px-3 py-2 bg-foreground text-background text-xs font-bold rounded-lg hover:opacity-90"
+              >
+                <Copy className="w-3 h-3" /> Copy
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(credentialMessage(created))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700"
+              >
+                <MessageCircle className="w-3 h-3" /> WhatsApp
+              </a>
+              <a
+                href={`mailto:?subject=${encodeURIComponent('Your Cofkans Electricals account')}&body=${encodeURIComponent(credentialMessage(created))}`}
+                className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700"
+              >
+                <Mail className="w-3 h-3" /> Email
+              </a>
+              <button
+                onClick={() => setCreated(null)}
+                className="ml-auto px-3 py-2 text-xs font-bold text-muted-foreground hover:text-foreground"
+              >
+                Dismiss
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This password is shown once and cannot be recovered. Share it now, then dismiss.
             </p>
           </div>
         )}

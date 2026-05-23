@@ -65,6 +65,8 @@ export interface FirestoreUser {
   isBanned: boolean;
   banReason: string | null;
   isLocked?: boolean; // Account locked due to failed login attempts
+  mustChangePassword?: boolean; // Worker created by admin must set their own password
+  createdBy?: string; // UID of admin who created this account (worker accounts)
 }
 
 export interface Address {
